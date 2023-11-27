@@ -1,0 +1,114 @@
+function results = analyze_collins18
+
+% Analyze Collins (2018) data.
+% Only nS = 3 has unequal state distributions
+
+load collins18
+
+beta = linspace(0.1,15,50);
+B = [1 3 4 6 9 10 12 14]; %unique(data(1).learningblock);
+Pa_type = [2 3 2 3 3 2 3 1];
+%B = unique(data(1).learningblock);
+Pa = nan(max(B),3,length(data));
+
+for s = 1:length(data)
+    cond = zeros(length(B),1);
+    R_data = zeros(length(B),1);
+    V_data = zeros(length(B),1);
+    for b = 1:length(B)
+        ix = data(s).learningblock==B(b) & data(s).phase==0;
+        state = data(s).state(ix);
+        c = data(s).corchoice(ix);
+        action = data(s).action(ix);
+        R_data(b) = mutual_information(state,action,0.1);
+        V_data(b) = mean(data(s).reward(ix));
+
+        S = unique(state);
+        Q = zeros(length(S),3);
+        Ps = zeros(1,length(S));
+        clear ii
+        for i = 1:length(S)
+            ii = state==S(i);
+            Ps(i) = mean(ii);
+            a = c(ii); a = a(1);
+            Q(i,a) = 1;
+            for j = 1:3
+                pas(i,j) = sum(state==i & action==j);
+            end
+        end
+        pas = pas./nansum(pas,2);
+
+        %         if sum(mean(Q)>0.34)>0
+        %             tag(b) = 1;
+        %             Pa(b,:,s) = mean(Q);
+        %         end
+        %
+
+        row = find(Q(:,Pa_type(b))==0);
+        col = find(mean(Q)==0);
+        pref = nan(size(Q));
+        pref(row,Pa_type(b)) = 1;
+        pref(row,col) = 1;
+
+        temp = pas.*pref;
+        a_pref(b,:) = [pas(row,Pa_type(b)), pas(row,col)];
+
+        [R(b,:),V(b,:)] = blahut_arimoto(Ps,Q,beta);
+
+        if length(S)==3
+            cond(b) = 1;
+        else
+            cond(b) = 2;
+        end
+
+    end % block
+
+    for c = 1
+        results.pref(s,:,c) = nanmean(a_pref(cond==c,:));
+        results.R(s,:,c) = nanmean(R(cond==c,:));
+        results.V(s,:,c) = nanmean(V(cond==c,:));
+        results.R_data(s,c) = nanmean(R_data(cond==c));
+        results.V_data(s,c) = nanmean(V_data(cond==c));
+    end
+
+    clear R V
+
+end % each subject
+
+% plot the action preferences
+figure; hold on;
+b = barwitherr(sem(results.pref,1),mean(results.pref))
+ylabel('P(A)'); set(gca,'XTick',[]);
+xticks([b.XEndPoints]); xticklabels({'A_1','A_2'})
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% p = signrank(results.R_data(:,1),results.R_data(:,2))
+% 
+% R = squeeze(nanmean(results.R));
+% V = squeeze(nanmean(results.V));
+% for c = 1:2
+%     Vd2(:,c) =  interp1(R(:,c),V(:,c),results.R_data(:,c));
+%     results.bias(:,c) = results.V_data(:,c) - Vd2(:,c);
+% end
+% 
+% [r,p] = corr([results.V_data(:,1); results.V_data(:,2)],[Vd2(:,1); Vd2(:,2)])
+% [r,p] = corr([results.R_data(:,1); results.R_data(:,2)],abs([results.bias(:,1); results.bias(:,2)]))
+% 
+% 
+% %load results_collins18.mat
+% R = squeeze(nanmean(results.R));
+% V = squeeze(nanmean(results.V));
+% ylim = [0.25 1.1];
+% xlim = [0 0.9];
+% for i = 1:2
+%     h(i) = plot(R(:,i),V(:,i),'LineWidth',4);
+%     hold on;
+% end
+% xlabel('Policy complexity','FontSize',25);
+% ylabel('Average reward','FontSize',25);
+% set(gca,'FontSize',25,'YLim',ylim,'XLim',xlim);
+% for i =1:2
+%     h(i+2) = plot(results.R_data(:,i),results.V_data(:,i),'o','MarkerSize',10,'LineWidth',3);
+% end
+% legend(h,{'Ns = 3 (theory)' 'Ns = 6 (theory)' 'Ns = 3 (data)' 'Ns = 6 (data)'},'FontSize',25,'Location','SouthEast');

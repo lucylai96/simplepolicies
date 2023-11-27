@@ -1,0 +1,229 @@
+function fit_models_driver(do)
+% do
+% data
+
+addpath([pwd '/mat'])
+
+%            1      2            3          4          5            6        7      8
+models = {'rlwm','nocost','nc_multibeta','fixed','f_multibeta','capacity','value','cv'};
+models_labels = {'RLWM','No Cost (1\beta)','No Cost (6\beta)','Fixed (1\beta)','Fixed (6\beta)','Capacity','Value','Capacity-Value'};
+models_files = {'RLWM','NoCost1','NoCost6','Fixed1','Fixed6','Capacity','Value','Capacity-Value'};
+% models = {'nocost'};
+% models = {'nc_multibeta'};
+% models = {'fixed'};
+% models = {'f_multibeta'};
+% models = {'capacity'};
+% models = {'value'};
+% models = {'cv'};
+
+switch do
+    case 'lb'
+        a = load('lb_exp1.mat');
+        b = load('lb_exp2.mat');
+        c = load('lb_exp3.mat');
+
+        lb = max([a.lb b.lb c.lb],[],2);
+        save('lb.mat','lb')
+
+        %% fit all models
+    case 'fit'
+        load lb
+
+        save_mat = false;
+        [results,bms_results] = fit_models(models, data, lb, save_mat);
+        save('models.mat','results','bms_results');
+
+        %% fit all models with RT
+    case 'fit_rt'
+        load lb
+
+        save_mat = false;
+        [results,bms_results] = fit_models_rt(models, data, lb, save_mat);
+        save('models_rt.mat','results','bms_results');
+
+        %% simulate from fitted parameters and save as individual mat files
+    case 'simulate'
+        load models_final4
+        load data_final
+
+        for m = 1:length(models)
+            disp('Parameters: '); disp({results(m).param.name});
+            disp('Mean fitted values: '); disp(mean(results(m).x));
+            disp('BIC: '); disp(mean(results(m).bic));
+            disp('Log Lik: '); disp(mean(results(m).loglik));
+        end
+
+        for m = 1:length(models)
+            % simulate
+            simdata = sim_fitted(models{m}, data, results);
+            save([pwd '/sim_' models{m} '.mat'],'simdata');
+            %save([pwd '/mat/sim_' models{m} '.mat'],'simdata');
+        end
+
+        %% plot & analyze simulated data
+    case 'analyze'
+        load data_final
+
+        for eix = 3:length(data(1).exp)
+            analyze_data(['exp' num2str(eix)], data, 'main'); sgtitle(['Data—Task' num2str(eix)])
+            %saveas(gcf,[pwd '/figures/raw/Data—Task' num2str(eix) '-Main'],'png')
+            for m = 1:length(models)
+                load(['sim_', models{m}, '.mat'],'simdata');
+                analyze_data(['exp' num2str(eix)], simdata, 'main'); sgtitle([models_labels{m} '—Task' num2str(eix)])
+                %saveas(gcf,[pwd '/figures/raw/' models_files{m} '—Task' num2str(eix) '-Main'], 'png');
+            end
+
+            analyze_data(['exp' num2str(eix)], data, 'dynamic'); sgtitle(['Data—Task' num2str(eix)])
+            saveas(gcf,[pwd '/figures/raw/Data—Task' num2str(eix) '-Dynamics'], 'png');
+            for m = 1:length(models)
+                load(['sim_', models{m}, '.mat'],'simdata');
+                analyze_data(['exp' num2str(eix)], simdata, 'dynamic'); sgtitle([models_labels{m} '—Task' num2str(eix)])
+                %saveas(gcf,[pwd '/figures/raw/' models_files{m} '—Task' num2str(eix) '-Dynamics'], 'png');
+            end
+
+            if eix == 3
+                analyze_data(['exp' num2str(eix)], data, 'suboptimal'); sgtitle(['Data—Task' num2str(eix)])
+                saveas(gcf,[pwd '/figures/raw/Data—Task' num2str(eix) '-Suboptimal'], 'png');
+                for m = 1:length(models)
+                    load(['sim_', models{m}, '.mat'],'simdata');
+                    analyze_data(['exp' num2str(eix)], simdata,'suboptimal'); sgtitle([models_labels{m} '—Task' num2str(eix)])
+                    saveas(gcf,[pwd '/figures/raw/' models_files{m} '—Task' num2str(eix) '-Suboptimal'], 'png');
+                end
+            else
+                figure; analyze_data(['exp' num2str(eix)], data,'action_biases'); sgtitle(['Data—Task' num2str(eix)])
+                saveas(gcf,[pwd '/figures/raw/Data—Task' num2str(eix) '-Biases'], 'png');
+                for m = 1:length(models)
+                    load(['sim_', models{m}, '.mat'],'simdata');
+                    figure; analyze_data(['exp' num2str(eix)], simdata, 'action_biases'); sgtitle([models_labels{m} '—Task' num2str(eix)])
+                    saveas(gcf,[pwd '/figures/raw/' models_files{m} '—Task' num2str(eix) '-Biases'], 'png');
+                end
+
+            end
+        end
+        %% plot model comparison stats
+    case 'compare'
+        load models_FINAL
+        figure; hold on;
+        y = mean([results.bic]);
+        max([results.bic])
+        min([results.bic])
+        y = y-min(y);
+        pxp = bms_results.pxp;
+        [~,idx] = sort(y);
+        cmap = brewermap(10,'Set1');
+
+        subplot 211; hold on; colororder(cmap)
+        for m = idx
+            bar(find(m==idx),pxp(m),'FaceColor',cmap(find(m==idx),:));
+        end
+        ylabel('PXP'); ylim([0 1]);xticks(1:length(results));
+
+        subplot 212; hold on;
+        for m = idx
+            bar(find(m==idx),y(m),'FaceColor',cmap(find(m==idx),:));
+            errorbar(find(m==idx),y(m),sem(results(m).bic,1)/2,sem(results(m).bic,1)/2)
+        end
+        ylabel('\Delta BIC from best model'); %set(gca,'YScale', 'log');
+        %ylim([0 1000])
+        yticks([0 2000 4000 6000 8000]);
+        xticks(1:length(results)); xticklabels(models_labels(idx))
+        text(0.3,10^25,'**Winning model','FontSize',20)
+
+        %% compare beta values
+    case 'betas'
+
+        for m = 1:length(models)
+            % simulate
+            simdata = sim_fitted(models{m}, data, results);
+            for s = 1:length(simdata)
+                for eix = 1:length(data(1).exp)
+                    beta1(s,eix,m) = mean(simdata(s).exp(eix).beta(simdata(s).exp(eix).cond==1));
+                    beta2(s,eix,m) = mean(simdata(s).exp(eix).beta(simdata(s).exp(eix).cond==2));
+                end
+            end
+        end % for each of the simulated models
+
+        figure; hold on;
+        nexttile; hold on;
+        bar(squeeze(mean(beta1,1)))
+        title('Q1');xticks([]);
+
+        nexttile; hold on;
+        bar(squeeze(mean(beta2,1)))
+        title('Q2')
+        xticks([1 2 3]); xticklabels({'Exp1','Exp2','Exp3'});
+        legend(models_labels)
+
+        %% compare the fitted capacity value with the actual policy complexity
+    case 'capacity'
+        load models
+        results_data = analyze_data('exp1', data, false);
+        results_data.R_data
+        C = results(7).x(:,1);
+        figure; hold on;
+        plot(results_data.R_data,C,'.','MarkerSize',30); lsline
+        plot(results_data.R_data_max,C,'.','MarkerSize',30); lsline
+        [r,p] = corr(results_data.R_data,C)
+        axis tight; axis square; axis equal; axis tight;
+        ylabel('Fitted C'); xlabel('Empirical policy complexity')
+        ylim([0 2]); xlim([0 2]);
+
+        results_data = analyze_data('exp3', data, false);
+        results_data.R_data
+        C = results(7).x(:,1);
+        figure; hold on;
+        plot(results_data.R_data,C,'.','MarkerSize',30); lsline
+        [r,p] = corr(results_data.R_data,C)
+        axis tight; axis square; axis equal; axis tight;
+        ylabel('Fitted C'); xlabel('Empirical policy complexity')
+        ylim([0 2]); xlim([0 2]);
+
+        C = results(7).x(:,1);
+
+
+        %% plot parameters
+    case 'params'
+        load models_rt
+        figure; hold on;
+        for m = 1:length(models)
+            figure; hold on;
+            for k = 1:length(results(m).param)
+                nexttile; hold on;
+                b = bar(k,mean(results(m).x(:,k))); % mean fitted parameter
+                scatterbar(b, results(m).x(:,k), 0);
+                title(results(m).param(k).label)
+                if contains(results(m).param(k).label,'lrate')
+                    %ylim([0 1])
+                elseif contains(results(m).param(k).label,'beta')
+                    %ylim([0 30])
+                else
+                    %ylim([0 2])
+                end
+                box off;
+            end
+            sgtitle(models_labels{m})
+            set(gcf, 'Position',  [100, 400, 1500, 250])
+        end % for each model
+
+        % mean(results(m).x(:,1)) % plot the mean fitted C or V
+        %shadedErrorBar([],mean(results(m).x(:,1)),sem(results(m).x(:,1),1),{'Color',cmap(c,:)},1)
+
+
+
+end % switch
+end % function
+
+
+%% extra / old
+
+%for s = 1:length(data)
+%    new_data(s) = data(s).exp(eix);
+%end
+
+% fit model
+% for eix = 1:length(data(1).exp)
+%     load(['lb_exp' num2str(eix) '.mat'])
+%     LB(:,eix) = lb;
+% end
+% lb = max(LB,[],2);
+% save('lb.mat','lb')

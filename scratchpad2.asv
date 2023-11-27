@@ -1,0 +1,108 @@
+%            1      2            3          4          5            6      7        8          9         10      11
+models = {'rlwm','nocost','nc_multibeta','fixed','f_multibeta','capacity','value','cv','capacity_pg','value_pg','pg'};
+
+% order: pg, capacity pg, value, value pg, cv, fixed, capacity, f6beta  (median)
+% order: pg, value, value pg, capacity pg, cv, capacity, fixed, f6beta  (mean)
+
+% maybe the relevant final models should be:
+models = {'rlwm','nocost','nc_multibeta','fixed','f_multibeta','capacity_pg','value_pg','pg'};
+
+for m = 1:length(models)
+    load([models{m} '.mat'])
+    new_results(m) = results;
+end
+
+results = new_results;
+bms_results = mfit_bms(results,1)
+
+figure; hold on;
+y = mean([results.bic]);
+y = y-min(y);
+pxp = bms_results.pxp;
+[~,idx] = sort(y);
+cmap = brewermap(11,'Set1');
+
+subplot 211; hold on; colororder(cmap)
+for m = idx
+    bar(find(m==idx),pxp(m),'FaceColor',cmap(find(m==idx),:));
+end
+ylabel('PXP'); ylim([0 1]);xticks(1:length(results));
+
+subplot 212; hold on;
+for m = idx
+    bar(find(m==idx),y(m),'FaceColor',cmap(find(m==idx),:));
+    errorbar(find(m==idx),y(m),sem(results(m).bic,1)/2,sem(results(m).bic,1)/2)
+end
+ylabel('\Delta BIC from best model'); %set(gca,'YScale', 'log');
+ylim([0 30])
+xticks(1:length(results)); xticklabels(models(idx))
+text(0.3,10^25,'**Winning model','FontSize',20)
+
+
+load data_final;
+simdata_pg = sim_fitted('pg', data, results(11));
+analyze_data('exp2',simdata_pg,'main');
+analyze_data('exp2',simdata_pg,'dynamic');
+analyze_data('exp3',simdata_pg,'main');
+analyze_data('exp3',simdata_pg,'dynamic');
+analyze_data('exp3',simdata_pg,'suboptimal');
+analyze_data('exp3',simdata_pg,'beta');
+
+simdata_v = sim_fitted('value', data, results(7)); % x cant capture exp 3 or exp 2 dynamics
+analyze_data('exp2',simdata_v,'main');
+analyze_data('exp2',simdata_v,'dynamic');
+analyze_data('exp3',simdata_v,'main');
+analyze_data('exp3',simdata_v,'dynamic');
+analyze_data('exp3',simdata_v,'suboptimal');
+
+simdata_vpg = sim_fitted('value_pg', data, results(10)); % x cant capture exp 3 or exp 2 dynamics
+analyze_data('exp2',simdata_vpg,'main');
+analyze_data('exp2',simdata_vpg,'dynamic');
+analyze_data('exp3',simdata_vpg,'main');
+analyze_data('exp3',simdata_vpg,'dynamic');
+analyze_data('exp3',simdata_vpg,'suboptimal');
+analyze_data('exp3',simdata_vpg,'beta');
+
+simdata_cpg = sim_fitted('capacity_pg', data, results(9)); % x cant capture exp 3 or exp 2 dynamics
+analyze_data('exp2',simdata_cpg,'main');
+analyze_data('exp2',simdata_cpg,'dynamic');
+analyze_data('exp3',simdata_cpg,'main');
+analyze_data('exp3',simdata_cpg,'dynamic');
+analyze_data('exp3',simdata_cpg,'suboptimal');
+analyze_data('exp3',simdata_cpg,'beta');
+
+simdata_cv = sim_fitted('cv', data, results(8));
+analyze_data('exp3',simdata_cv,'main');
+analyze_data('exp3',simdata_cv,'dynamic');
+analyze_data('exp3',simdata_cv,'suboptimal');
+analyze_data('exp3',simdata_cv,'beta');
+
+simdata_f = sim_fitted('fixed', data, results(4));
+analyze_data('exp3',simdata_f,'main');
+analyze_data('exp3',simdata_f,'dynamic');
+analyze_data('exp3',simdata_f,'suboptimal');
+analyze_data('exp3',simdata_f,'beta');
+
+simdata_fmb = sim_fitted('f_multibeta', data, results(5));
+analyze_data('exp3',simdata_fmb,'main');
+analyze_data('exp3',simdata_fmb,'dynamic');
+analyze_data('exp3',simdata_fmb,'suboptimal');
+analyze_data('exp3',simdata_fmb,'beta');
+
+simdata_c = sim_fitted('capacity', data, results(6)); % x cant capture exp 3 or exp 2 dynamics
+analyze_data('exp2',simdata_c,'main');
+analyze_data('exp2',simdata_c,'dynamic');
+analyze_data('exp3',simdata_c,'main');
+analyze_data('exp3',simdata_c,'dynamic');
+analyze_data('exp3',simdata_c,'suboptimal');
+
+simdata_rlwm = sim_fitted('rlwm', data, results(1));
+analyze_data('exp3',simdata_rlwm,'main');
+analyze_data('exp3',simdata_rlwm,'dynamic');
+analyze_data('exp3',simdata_rlwm,'suboptimal');
+analyze_data('exp3',simdata_rlwm,'beta');
+
+% data
+analyze_data('exp3',data,'main');
+analyze_data('exp3',data,'dynamic');
+analyze_data('exp3',data,'suboptimal');

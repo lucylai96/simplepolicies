@@ -1,0 +1,129 @@
+function simdata = actor_critic(agent,DATA)
+
+% Simulate actor-critic agent.
+%
+% USAGE: simdata = actor_critic(agent,data)
+
+
+if contains(agent.policy_update,'multibeta')
+    k = 1;
+    x = [agent.beta11 agent.beta12 agent.beta21 agent.beta22 agent.beta31 agent.beta32];
+end
+
+exps = [1 2 3];
+for eix = exps
+    data = DATA.exp(eix);
+    C = unique(data.cond);
+    for c = 1:length(C)
+        if eix == 3 && c ==2 && isfield(agent,'compress') && contains(agent.policy_update,'c')
+            agent.C = agent.compress;
+            agent.lrate_p = agent.lrate_p + 0.1;
+        elseif  eix == 3 && c ==2 && isfield(agent,'compress') && contains(agent.policy_update,'value')
+            agent.V = agent.compress;
+            agent.lrate_p = agent.lrate_p + 0.1;
+        elseif eix == 3 && c ==2 && (contains(agent.policy_update,'fixed') || contains(agent.policy_update,'pg'))
+            agent.beta0 = agent.compress;
+            agent.beta0 = max(agent.beta0,0.1);
+            agent.lrate_p = agent.lrate_p + 0.1;
+        end
+
+        if agent.lrate_p > 0.99
+            agent.lrate_p = 0.99;
+        end
+
+        ix = find(data.cond==C(c));
+        state = data.s(ix);
+        if isfield(data,'a')
+            action = data.a(ix);
+            reward = data.r(ix);
+        end
+        R = data.Q(:,:,ix(1));
+        setsize = length(unique(state));   % number of distinct stimuli
+        nA = size(R,2);                    % number of distinct actions
+        V = zeros(setsize,1);              % state values
+        theta = zeros(setsize,nA);         % policy parameters
+
+        if contains(agent.policy_update,'multibeta')
+            beta = x(k);
+            k = k+1;
+        else
+            beta = agent.beta0;
+        end
+
+        p = ones(1,nA)/nA;
+
+        ecost = 0;
+        if isfield(data,'a')
+            ecost = mutual_information(state(1:10),action(1:10),0.1);
+        end
+        rho = mean(reward(1:10));
+
+        for t = 1:length(state)
+            s = state(t);
+            d = beta*theta(s,:) + log(p);
+
+            logpolicy = d - logsumexp(d);
+            policy = exp(logpolicy);    % softmax policy
+            entropy = -nansum(policy.*log2(policy));
+
+            a = fastrandsample(policy); % action
+            r = fastrandsample(R(s,a)); % reward
+
+            cost = logpolicy(a) - log(p(a));   % policy complexity cost
+            rpe = beta*r - cost - V(s);        % reward prediction error
+
+            log_rt = log(agent.t0 + agent.b1*abs(cost) + agent.b2*entropy) + normrnd(0,agent.sigma^2);
+            rt = exp(log_rt);
+            if rt>2000
+                rt = 2000;
+            end
+            rho = rho + agent.lrate_r*(r-rho);             % avg reward update
+            ecost = ecost + agent.lrate_e*(cost-ecost);    % policy cost update
+
+            chosen = a; idxs = 1:nA; unchosen = idxs(idxs~=chosen);
+            g(:,chosen) = beta*(1-policy(chosen));     % policy gradient for chosen actions
+            g(:,unchosen) = beta*(-policy(unchosen));  % policy gradient for unchosen actions
+            theta(s,:) = theta(s,:) + agent.lrate_theta*rpe*g;  % policy parameter update
+            V(s) = V(s) + agent.lrate_V*rpe;
+
+            if agent.lrate_beta > 0
+                switch agent.policy_update
+                    case 'capacity'
+                        beta = beta + agent.lrate_beta*(agent.C-ecost);
+                        simdata.exp(eix).dC(:,:,ix(t)) = agent.C-ecost;
+                    case 'value'
+                        beta = beta + agent.lrate_beta*(agent.V-rho);
+                        simdata.exp(eix).dV(:,:,ix(t)) = agent.V-rho;
+                    case 'cv'
+                        beta = beta + agent.lrate_beta*((agent.C-ecost)/(agent.V-rho)-beta);
+                        simdata.exp(eix).dC(:,:,ix(t)) = agent.C-ecost;
+                        simdata.exp(eix).dV(:,:,ix(t)) = agent.V-rho;
+                    case 'pg'
+                        beta = beta + agent.lrate_beta*rpe*(theta(s,a)-(theta(s,:)*policy'));
+                    case 'capacity_pg'
+                        beta = beta + agent.lrate_beta*(agent.C-ecost)*(theta(s,a)-(theta(s,:)*policy'));
+                    case 'value_pg'
+                        beta = beta + agent.lrate_beta*(agent.V-rho)*(theta(s,a)-(theta(s,:)*policy'));
+                end
+                beta = max(min(beta,30),0.1);
+            end
+
+            if agent.lrate_p > 0
+                p = p + agent.lrate_p*(policy - p); p = p./sum(p); % marginal update
+            end
+
+            simdata.exp(eix).s(ix(t),:) = s;
+            simdata.exp(eix).a(ix(t),:) = a;
+            simdata.exp(eix).r(ix(t),:) = r;
+            simdata.exp(eix).cond(ix(t),:) = c;
+            simdata.exp(eix).beta(ix(t),:) = beta;
+            simdata.exp(eix).ecost(ix(t),:) = ecost;
+            simdata.exp(eix).cost(ix(t),:) = cost;
+            simdata.exp(eix).rt(ix(t),:) = rt;
+            simdata.exp(eix).Q(:,:,ix(t)) = R;
+        end % for each timestep
+        simdata.exp(eix).N = length(state)*2;
+
+    end % for each condition
+end % for each experiment
+end % function
